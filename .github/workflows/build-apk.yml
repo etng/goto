@@ -58,8 +58,16 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
+      # GitHub's ubuntu runner ships its own Android SDK and pre-sets
+      # ANDROID_SDK_ROOT=/usr/local/lib/android/sdk, which conflicts with our
+      # ANDROID_HOME (different paths -> AGP aborts). Unset it so Gradle only
+      # sees one SDK location.
       - name: Build debug APK
-        run: cd android && ./gradlew :app:assembleDebug --no-daemon
+        env:
+          ANDROID_HOME: /home/runner/android-sdk
+        run: |
+          unset ANDROID_SDK_ROOT
+          cd android && ./gradlew :app:assembleDebug --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
