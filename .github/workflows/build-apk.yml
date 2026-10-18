@@ -69,15 +69,30 @@ jobs:
           unset ANDROID_SDK_ROOT
           cd android && ./gradlew :app:assembleDebug --no-daemon
 
+      # Copy the built APK to a versioned name so releases/artifacts are easy
+      # to track: etng_goto_v<versionName>_<versionCode>.apk
+      # (e.g. etng_goto_v0.2.0_2.apk). The original app-debug.apk is kept so
+      # local `make install` still works.
+      - name: Rename APK with version
+        id: rename
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          VERSION_NAME=$(grep -oE 'versionName = "[^"]+"' android/app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -oE 'versionCode = [0-9]+' android/app/build.gradle.kts | sed -E 's/.*([0-9]+).*/\1/')
+          NAME="etng_goto_v${VERSION_NAME}_${VERSION_CODE}.apk"
+          cp "$APK" "android/app/build/outputs/apk/debug/$NAME"
+          echo "apk_name=$NAME" >> "$GITHUB_ENV"
+          echo "Renamed APK -> $NAME"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: goto-app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ env.apk_name }}
+          path: android/app/build/outputs/apk/debug/${{ env.apk_name }}
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          files: android/app/build/outputs/apk/debug/${{ env.apk_name }}
           generate_release_notes: true
