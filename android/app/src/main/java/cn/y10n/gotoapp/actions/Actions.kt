@@ -59,30 +59,39 @@ object Actions {
     }
 
     /**
-     * 打开设置页。
-     * @param fallbackToDev 无线调试等页面在部分 ROM 缺失时回退开发者选项
+     * 打开设置页。按配置中的 [SettingsCatalog.Entry] 解析 Intent（action + 可选 data）。
+     * @param entries 当前配置里的设置项列表（用于按 id 查找与无线调试回退）
      */
-    fun openSettings(context: Context, id: String): Boolean {
-        val entry = SettingsCatalog.byId(id) ?: return false
-        val intent = entry.intent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    fun openSettings(context: Context, id: String, entries: List<SettingsCatalog.Entry>): Boolean {
+        val entry = entries.firstOrNull { it.id == id } ?: return false
+        val intent = buildSettingsIntent(context, entry).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             context.startActivity(intent)
             true
         } catch (e: ActivityNotFoundException) {
-            if (id == "wireless_debug") {
-                return runCatching {
-                    context.startActivity(
-                        Intent(SettingsCatalog.byId("dev_options")!!.intent(context))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                    true
-                }.getOrDefault(false)
+            if (entry.action == "android.settings.WIRELESS_DEBUGGING_SETTINGS") {
+                entries.firstOrNull { it.action == "android.settings.APPLICATION_DEVELOPMENT_SETTINGS" }
+                    ?.let { dev ->
+                        return runCatching {
+                            context.startActivity(
+                                buildSettingsIntent(context, dev).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            true
+                        }.getOrDefault(false)
+                    }
             }
             false
         } catch (e: Exception) {
             false
         }
     }
+
+    /** 由配置项构造 Intent；data 中的 {pkg} 占位符替换为当前应用包名 */
+    private fun buildSettingsIntent(context: Context, e: SettingsCatalog.Entry): Intent =
+        Intent(e.action).apply {
+            val data = e.data.replace("{pkg}", context.packageName)
+            if (data.isNotBlank()) this.data = Uri.parse(data)
+        }
 
     /**
      * 按收藏规则打开网页。

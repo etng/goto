@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,12 +57,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cn.y10n.gotoapp.BuildConfig
 import cn.y10n.gotoapp.actions.Actions
 import cn.y10n.gotoapp.actions.OpenMode
 import cn.y10n.gotoapp.data.AppRepo
 import cn.y10n.gotoapp.data.Reorder
-import cn.y10n.gotoapp.data.SettingsCatalog
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
@@ -69,6 +73,16 @@ import kotlin.math.roundToInt
 fun HomeScreen(vm: MainViewModel, onPickApps: () -> Unit) {
     val context = LocalContext.current
     val config by vm.config.collectAsStateWithLifecycle()
+
+    // 从系统设置页（如「使用情况访问」）返回时重新检查授权等状态，否则授权后 banner 不会消失
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var urlInput by remember { mutableStateOf("") }
     var chooserPkgs by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -91,9 +105,9 @@ fun HomeScreen(vm: MainViewModel, onPickApps: () -> Unit) {
         }
     }
 
+    // 系统设置：直接按配置顺序过滤（enabled 即显示），顺序由用户在管理端/排序决定
     val enabledSettings = remember(config) {
-        val enabledIds = config.settings.filter { it.enabled }.map { it.id }.toSet()
-        SettingsCatalog.available().filter { it.id in enabledIds }
+        config.settings.filter { it.enabled }
     }
     val quickLinks = remember(config) { config.quickLinks }
 
@@ -174,7 +188,7 @@ fun HomeScreen(vm: MainViewModel, onPickApps: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         enabledSettings.forEach { entry ->
-                            SectionChip(entry.label, onClick = { Actions.openSettings(context, entry.id) })
+                            SectionChip(entry.label, onClick = { Actions.openSettings(context, entry.id, config.settings) })
                         }
                     }
                 }
@@ -222,6 +236,8 @@ fun HomeScreen(vm: MainViewModel, onPickApps: () -> Unit) {
 
             // ⑤ 局域网配置（连接信息置于页面底部）
             item { ServerCard(vm) }
+            // ⑥ 版本页脚（semVer + 数字版本 + 构建日期，便于判断是否过旧）
+            item { VersionFooter() }
             item { Spacer(Modifier.height(72.dp)) }
         }
     }
@@ -416,6 +432,28 @@ private fun ServerCard(vm: MainViewModel) {
 }
 
 @Composable
+private fun VersionFooter() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "Goto v${BuildConfig.VERSION_NAME} · #${BuildConfig.VERSION_CODE}",
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "构建于 ${BuildConfig.BUILD_DATE}",
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun UsageBanner(vm: MainViewModel) {
     val context = LocalContext.current
     Surface(
@@ -432,7 +470,7 @@ private fun UsageBanner(vm: MainViewModel) {
                 Text("用于读取最近使用的高频应用", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer)
             }
-            TextButton(onClick = { Actions.openSettings(context, "usage_access") }) { Text("去开启") }
+            TextButton(onClick = { Actions.openSettings(context, "android.settings.USAGE_ACCESS_SETTINGS", vm.config.value.settings) }) { Text("去开启") }
         }
     }
 }

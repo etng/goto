@@ -9,7 +9,7 @@ import cn.y10n.gotoapp.data.AppRepo
 import cn.y10n.gotoapp.data.Config
 import cn.y10n.gotoapp.data.ConfigStore
 import cn.y10n.gotoapp.data.QuickLink
-import cn.y10n.gotoapp.data.SettingsConfig
+import cn.y10n.gotoapp.data.SettingsCatalog
 import cn.y10n.gotoapp.data.toJson
 import cn.y10n.gotoapp.util.NetworkUtils
 import kotlinx.coroutines.CoroutineScope
@@ -25,25 +25,38 @@ import java.io.ByteArrayInputStream
  * 生命周期随应用进程：进程存活即服务，进程结束即关闭。
  */
 object LanServer {
-    const val PORT = 8787
+    const val BASE_PORT = 8787
+    private const val MAX_OFFSET = 20
 
     private var server: HttpServer? = null
+    private var boundPort: Int = 0
 
     @Synchronized
     fun start(context: Context) {
         if (server != null) return
         val impl = Impl(context.applicationContext)
-        val http = runCatching { HttpServer(PORT) { impl.route(it) } }
-            .getOrElse { return }
-        http.start()
-        server = http
+        for (offset in 0 until MAX_OFFSET) {
+            val port = BASE_PORT + offset
+            val http = runCatching { HttpServer(port) { impl.route(it) } }.getOrNull() ?: continue
+            val started = runCatching { http.start() }.isSuccess
+            if (!started) {
+                http.close()
+                continue
+            }
+            server = http
+            boundPort = port
+            return
+        }
     }
 
     fun url(): String {
-        if (server == null) return ""
+        if (server == null || boundPort == 0) return ""
         val ip = NetworkUtils.getIpAddress(cn.y10n.gotoapp.GotoApp.instance)
-        return if (ip.isEmpty()) "" else "http://$ip:$PORT"
+        return if (ip.isEmpty()) "" else "http://$ip:$boundPort"
     }
+
+    /** 实际绑定的端口（被占用时会顺延），供 /api/info 与 UI 展示 */
+    fun port(): Int = boundPort
 }
 
 private class Impl(private val ctx: Context) {
@@ -113,6 +126,7 @@ private class Impl(private val ctx: Context) {
             rest == "open/app" && req.method == "POST" -> openApp(body(req))
             rest == "open/url" && req.method == "POST" -> openUrl(body(req))
             rest == "open/settings" && req.method == "POST" -> openSettings(body(req))
+            rest == "settings-catalog" && req.method == "GET" -> settingsCatalog()
             else -> json(404, JSONObject().put("error", "no such api"))
         }
     }
@@ -137,7 +151,7 @@ private class Impl(private val ctx: Context) {
             .put("model", android.os.Build.MODEL)
             .put("sdk", android.os.Build.VERSION.SDK_INT)
             .put("ip", ip)
-            .put("port", LanServer.PORT)
+            .put("port", LanServer.port())
             .put("usageAccess", NetworkUtils.usageAccessGranted(ctx))
             .put("hasToken", ConfigStore.state.value.token.isNotEmpty()))
     }
@@ -164,9 +178,19 @@ private class Impl(private val ctx: Context) {
             } ?: current.quickLinks,
             settings = b.optJSONArray("settings")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->
-                    arr.optJSONObject(i)?.let { o ->
-                        SettingsConfig(o.optString("id"), o.optBoolean("enabled", true))
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val action = o.optString("action").ifBlank {
+                        SettingsCatalog.legacyAction(o.optString("id")) ?: return@mapNotNull null
                     }
+                    SettingsCatalog.Entry(
+                        id = o.optString("id").ifBlank { action },
+                        label = o.optString("label").ifBlank { action.substringAfterLast('.') },
+                        action = action,
+                        data = o.optString("data"),
+                        builtin = o.optBoolean("builtin", true),
+                        enabledByDefault = o.optBoolean("enabledByDefault", false),
+                        enabled = o.optBoolean("enabled", true),
+                    )
                 }
             } ?: current.settings,
         )
@@ -266,8 +290,21 @@ private class Impl(private val ctx: Context) {
     private fun openSettings(b: JSONObject): HttpResponse {
         val id = b.optString("id")
         if (id.isEmpty()) return json(400, JSONObject().put("error", "id required"))
-        val ok = Actions.openSettings(ctx, id)
+        val ok = Actions.openSettings(ctx, id, ConfigStore.state.value.settings)
         return json(200, JSONObject().put("ok", ok))
+    }
+
+    /** 返回本机可解析的全部设置入口（供 Web 端勾选添加），已加入的标记 added */
+    private fun settingsCatalog(): HttpResponse {
+        val presets = SettingsCatalog.discover(ctx) + SettingsCatalog.SUGGESTED
+        val added = ConfigStore.state.value.settings.map { it.id }.toSet()
+        return json(200, JSONObject()
+            .put("presets", JSONArray(presets.map { e ->
+                JSONObject()
+                    .put("id", e.id).put("label", e.label).put("action", e.action)
+                    .put("data", e.data).put("builtin", e.builtin)
+            }))
+            .put("added", JSONArray(added.toList())))
     }
 
     // ---------- 工具 ----------

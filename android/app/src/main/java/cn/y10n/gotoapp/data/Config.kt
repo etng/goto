@@ -6,7 +6,11 @@ import java.security.SecureRandom
 
 data class QuickLink(val label: String, val url: String)
 
-data class SettingsConfig(val id: String, val enabled: Boolean)
+/**
+ * 系统设置快捷项：改为完整可编辑的数据（不再只是开关）。
+ * 见 [SettingsCatalog.Entry]。
+ */
+typealias SettingsEntry = SettingsCatalog.Entry
 
 /**
  * 应用配置：token 为局域网访问口令，其余为可管理项。
@@ -17,7 +21,7 @@ data class Config(
     val webFavorites: List<String>,   // 网页处理应用收藏（有序）
     val pinnedApps: List<String>,     // 固定到主页的应用（有序）
     val quickLinks: List<QuickLink>,  // 网页快捷链接
-    val settings: List<SettingsConfig>, // 系统设置快捷项开关
+    val settings: List<SettingsEntry>, // 系统设置快捷项（有序、可勾选/自定义）
 ) {
     companion object {
         fun randomToken(): String =
@@ -28,8 +32,7 @@ data class Config(
             QuickLink("淘宝", "https://www.taobao.com"),
         )
 
-        val defaultSettings: List<SettingsConfig> =
-            SettingsCatalog.all.map { SettingsConfig(it.id, it.enabledByDefault) }
+        val defaultSettings: List<SettingsEntry> = SettingsCatalog.seed()
 
         fun default(): Config = Config(
             token = randomToken(),
@@ -56,7 +59,8 @@ fun Config.toJson(): JSONObject = JSONObject().apply {
         JSONObject().put("label", it.label).put("url", it.url)
     }))
     put("settings", JSONArray(settings.map {
-        JSONObject().put("id", it.id).put("enabled", it.enabled)
+        JSONObject().put("id", it.id).put("label", it.label).put("action", it.action)
+            .put("data", it.data).put("builtin", it.builtin).put("enabled", it.enabled)
     }))
 }
 
@@ -73,7 +77,30 @@ fun JSONObject.toConfig(): Config = Config(
     settings = optJSONArray("settings")?.let { arr ->
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            SettingsConfig(o.optString("id"), o.optBoolean("enabled", true))
+            parseSettingsEntry(o)
         }
     } ?: Config.defaultSettings,
 )
+
+/**
+ * 解析单个设置项，兼容两种格式：
+ *  - 新格式：含 action 字段 → 直接使用。
+ *  - 旧格式：仅 id + enabled（无 action）→ 经 [SettingsCatalog.legacyAction] 映射到 action，
+ *    迁移时保留启用状态与顺序。无法识别的旧 id 直接丢弃。
+ */
+private fun parseSettingsEntry(o: JSONObject): SettingsEntry? {
+    val action = o.optString("action").ifBlank {
+        SettingsCatalog.legacyAction(o.optString("id")) ?: return null
+    }
+    val id = o.optString("id").ifBlank { action }
+    val label = o.optString("label").ifBlank { action.substringAfterLast('.') }
+    return SettingsEntry(
+        id = id,
+        label = label,
+        action = action,
+        data = o.optString("data"),
+        builtin = o.optBoolean("builtin", true),
+        enabledByDefault = o.optBoolean("enabledByDefault", false),
+        enabled = o.optBoolean("enabled", true),
+    )
+}

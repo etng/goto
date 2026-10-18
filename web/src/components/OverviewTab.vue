@@ -68,23 +68,18 @@ const url = ref('')
 const openResult = ref('')
 
 const enabledSettings = computed(() =>
-  (config.value?.settings || []).filter(s => s.enabled).map(s => ({ id: s.id, label: settingsLabel(s.id) }))
+  (config.value?.settings || []).filter(s => s.enabled).map(s => ({ id: s.id, label: s.label || s.id }))
 )
 const quickLinks = computed(() => config.value?.quickLinks || [])
 
-const SETTINGS_LABELS = {
-  dev_options: '开发者选项', wireless_debug: '无线调试', usage_access: '使用情况访问',
-  app_list: '应用管理', notifications: '通知管理', wifi: 'WiFi', bluetooth: '蓝牙',
-  location: '位置信息', storage: '存储', display: '显示', sound: '声音', battery: '电池',
-  language: '语言', security: '安全', data_usage: '流量使用', accessibility: '无障碍',
-  home_settings: '桌面与手势', app_details: '本应用信息',
+function labelOf(id) {
+  return (config.value?.settings || []).find(s => s.id === id)?.label || id
 }
-function settingsLabel(id) { return SETTINGS_LABELS[id] || id }
 
 async function openSettings(id) {
   try {
     const r = await api('/api/open/settings', { method: 'POST', body: JSON.stringify({ id }) })
-    openResult.value = r.ok ? `已打开：${settingsLabel(id)}` : `打开失败：${settingsLabel(id)}`
+    openResult.value = r.ok ? `已打开：${labelOf(id)}` : `打开失败：${labelOf(id)}`
   } catch (e) { openResult.value = `失败：${e.message}` }
 }
 
