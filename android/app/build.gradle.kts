@@ -15,8 +15,8 @@ android {
         applicationId = "cn.y10n.goto"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         // 编译时注入构建日期，供主界面页脚展示，便于判断是否过旧
         val buildDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())
