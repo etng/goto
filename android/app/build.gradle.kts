@@ -1,5 +1,6 @@
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -24,9 +25,35 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 固定签名：本地读 android/local.properties 的 goto* 字段，CI 读 GOTO_* 环境变量。
+    // 密钥文件绝不进 git，CI 通过 secrets 还原。
+    signingConfigs {
+        create("releaseSigned") {
+            val ksProps = Properties().apply {
+                val local = rootProject.file("local.properties")
+                if (local.exists()) load(local.inputStream())
+            }
+            val ksFile = (ksProps.getProperty("gotoKeystoreFile")
+                ?: System.getenv("GOTO_KEYSTORE_FILE"))?.let { rootProject.file(it) }
+            val ksPass = ksProps.getProperty("gotoKeystorePassword")
+                ?: System.getenv("GOTO_KEYSTORE_PASSWORD")
+            val keyAlias = ksProps.getProperty("gotoKeyAlias")
+                ?: System.getenv("GOTO_KEY_ALIAS") ?: "goto"
+            val keyPass = ksProps.getProperty("gotoKeyPassword")
+                ?: System.getenv("GOTO_KEY_PASSWORD")
+            if (ksFile != null && ksPass != null && keyPass != null) {
+                storeFile = ksFile
+                storePassword = ksPass
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("releaseSigned")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

@@ -17,6 +17,7 @@ screenshots/
 **/build/
 android/local.properties
 local.properties
+# 签名密钥与密码已迁移到 .workbuddy（私有仓库）备份，绝不进主仓库；CI 通过 secrets 注入
 *.apk
 *.aab
 # Generated web assets embedded into the app (rebuilt by CI / `make apk`)

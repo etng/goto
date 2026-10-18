@@ -3,7 +3,7 @@
 WEB_DIR    := web
 ANDROID_DIR := android
 ASSETS     := $(ANDROID_DIR)/app/src/main/assets/web
-APK        := $(ANDROID_DIR)/app/build/outputs/apk/debug/app-debug.apk
+APK        := $(ANDROID_DIR)/app/build/outputs/apk/release/app-release.apk
 GRADLEW    := cd $(ANDROID_DIR) && ./gradlew
 
 ## 构建 Web 管理页并拷贝到 App assets
